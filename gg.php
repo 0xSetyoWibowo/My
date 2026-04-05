@@ -2,7 +2,7 @@
 session_start();
 error_reporting(0);
 
-$kunci = "d2785aae630d5b5f5a078aa973bbabad"; // TIDAK DIUBAH
+$kunci = "5a24678db840a3efe3eb6402f73fb4c2"; // TIDAK DIUBAH
 $c = "akses_taman";
 $e = "";
 
